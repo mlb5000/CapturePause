@@ -29,8 +29,8 @@ static CameraEngine* theEngine;
     CMTime _lastVideo;
     CMTime _lastAudio;
     
-    int _cx;
-    int _cy;
+    long _cx;
+    long _cy;
     int _channels;
     Float64 _samplerate;
 }
@@ -90,8 +90,8 @@ static CameraEngine* theEngine;
         _videoConnection = [videoout connectionWithMediaType:AVMediaTypeVideo];
         // find the actual dimensions used so we can set up the encoder to the same.
         NSDictionary* actual = videoout.videoSettings;
-        _cy = [[actual objectForKey:@"Height"] integerValue];
-        _cx = [[actual objectForKey:@"Width"] integerValue];
+        _cy = [[actual objectForKey:@"Height"] longValue];
+        _cx = [[actual objectForKey:@"Width"] longValue];
         
         AVCaptureAudioDataOutput* audioout = [[AVCaptureAudioDataOutput alloc] init];
         [audioout setSampleBufferDelegate:self queue:_captureQueue];
@@ -225,7 +225,7 @@ static CameraEngine* theEngine;
             [self setAudioFormat:fmt];
             NSString* filename = [NSString stringWithFormat:@"capture%d.mp4", _currentFile];
             NSString* path = [NSTemporaryDirectory() stringByAppendingPathComponent:filename];
-            _encoder = [VideoEncoder encoderForPath:path Height:_cy width:_cx channels:_channels samples:_samplerate];
+            _encoder = [VideoEncoder encoderForPath:path Height:(int)_cy width:(int)_cx channels:_channels samples:_samplerate];
         }
         if (_discont)
         {

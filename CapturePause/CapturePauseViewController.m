@@ -28,17 +28,34 @@
     AVCaptureVideoPreviewLayer* preview = [[CameraEngine engine] getPreviewLayer];
     [preview removeFromSuperlayer];
     preview.frame = self.cameraView.bounds;
-    [[preview connection] setVideoOrientation:UIInterfaceOrientationLandscapeRight];
+    [[preview connection] setVideoOrientation:AVCaptureVideoOrientationLandscapeRight];
     
     [self.cameraView.layer addSublayer:preview];
 }
 
 - (void) willAnimateRotationToInterfaceOrientation:(UIInterfaceOrientation)toInterfaceOrientation duration:(NSTimeInterval)duration
 {
+    AVCaptureVideoOrientation orientation = AVCaptureVideoOrientationLandscapeRight;
+    switch (toInterfaceOrientation) {
+        case UIInterfaceOrientationLandscapeLeft:
+            orientation = AVCaptureVideoOrientationLandscapeLeft;
+            break;
+        case UIInterfaceOrientationLandscapeRight:
+            orientation = AVCaptureVideoOrientationLandscapeRight;
+            break;
+        case UIInterfaceOrientationPortrait:
+            orientation = AVCaptureVideoOrientationPortrait;
+            break;
+        case UIInterfaceOrientationPortraitUpsideDown:
+            orientation = AVCaptureVideoOrientationPortraitUpsideDown;
+        default:
+            break;
+    }
+    
     // this is not the most beautiful animation...
     AVCaptureVideoPreviewLayer* preview = [[CameraEngine engine] getPreviewLayer];
     preview.frame = self.cameraView.bounds;
-    [[preview connection] setVideoOrientation:toInterfaceOrientation];
+    [[preview connection] setVideoOrientation:orientation];
 }
 
 - (void)didReceiveMemoryWarning
