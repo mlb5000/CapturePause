@@ -14,6 +14,6 @@ Pod::Spec.new do |s|
     :tag => s.version.to_s
   }
 
-  s.source_files = "Source/*.{h,swift}"
+  s.source_files = "CapturePause/*.{m,h,swift}"
   s.requires_arc = true
 end
