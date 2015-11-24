@@ -27,7 +27,12 @@
     [[NSFileManager defaultManager] removeItemAtPath:self.path error:nil];
     NSURL* url = [NSURL fileURLWithPath:self.path];
     
-    _writer = [AVAssetWriter assetWriterWithURL:url fileType:AVFileTypeQuickTimeMovie error:nil];
+    NSError *error = nil;
+    _writer = [AVAssetWriter assetWriterWithURL:url fileType:AVFileTypeMPEG4 error:&error];
+    if (error != nil) {
+        NSLog(@"Failed to create AVAssetWriter: %@", error);
+    }
+    
     NSDictionary* settings = [NSDictionary dictionaryWithObjectsAndKeys:
                               AVVideoCodecH264, AVVideoCodecKey,
                               [NSNumber numberWithInt: cx], AVVideoWidthKey,
@@ -50,6 +55,12 @@
 
 - (void) finishWithCompletionHandler:(void (^)(void))handler
 {
+    if (_writer.status == AVAssetWriterStatusCompleted) {
+        if (handler) {
+            handler();
+        }
+    }
+    
     [_writer finishWritingWithCompletionHandler: handler];
 }
 
@@ -65,7 +76,7 @@
         }
         if (_writer.status == AVAssetWriterStatusFailed)
         {
-            NSLog(@"writer error %@", _writer.error.localizedDescription);
+            NSLog(@"writer error %@. isVideo %@", _writer.error.localizedDescription, [NSNumber numberWithBool:bVideo]);
             return NO;
         }
         if (bVideo)

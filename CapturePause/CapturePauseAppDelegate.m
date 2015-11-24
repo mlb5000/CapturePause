@@ -15,7 +15,7 @@
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
     // Override point for customization after application launch.
-    [[CameraEngine engine] startup];
+    [[CameraEngine engine] startup:nil];
 
     return YES;
 }
@@ -41,7 +41,7 @@
 - (void)applicationDidBecomeActive:(UIApplication *)application
 {
     // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
-    [[CameraEngine engine] startup];
+    [[CameraEngine engine] startup:nil];
     CapturePauseViewController* view = (CapturePauseViewController*) self.window.rootViewController;
     [view startPreview];
 }

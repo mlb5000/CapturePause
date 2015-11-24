@@ -17,16 +17,23 @@
 @interface CameraEngine : NSObject
 
 + (CameraEngine*) engine;
-- (void) startup;
+- (void) startup:(NSString*)filePath;
 - (void) shutdown;
 - (AVCaptureVideoPreviewLayer*) getPreviewLayer;
 
-- (void) startCapture;
+- (void) startCapture:(AVCaptureVideoOrientation)orientation;
 - (void) pauseCapture;
-- (void) stopCapture;
+- (void) stopCapture:(void (^)(void))handler;
 - (void) resumeCapture;
+- (void) switchCamera;
+- (BOOL) cameraHasFlash;
+- (void) takePicture:(void (^)(CMSampleBufferRef imageDataSampleBuffer, NSError *error))handler;
+- (void) selectFlash:(AVCaptureFlashMode)flashMode torch:(AVCaptureTorchMode)torchMode;
+- (BOOL) isFlashModeSupported:(AVCaptureFlashMode)flashMode;
+- (BOOL) isTorchModeSupported:(AVCaptureTorchMode)torchMode;
 
 @property (atomic, readwrite) BOOL isCapturing;
 @property (atomic, readwrite) BOOL isPaused;
+@property (atomic, readwrite) BOOL hasFinished;
 
 @end

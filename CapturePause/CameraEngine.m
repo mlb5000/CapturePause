@@ -9,6 +9,7 @@
 #import "CameraEngine.h"
 #import "VideoEncoder.h"
 #import "AssetsLibrary/ALAssetsLibrary.h"
+@import AVFoundation;
 
 static CameraEngine* theEngine;
 
@@ -19,12 +20,20 @@ static CameraEngine* theEngine;
     dispatch_queue_t _captureQueue;
     AVCaptureConnection* _audioConnection;
     AVCaptureConnection* _videoConnection;
+    NSString *_filePath;
+    AVCaptureVideoDataOutput *_videoout;
+    AVCaptureStillImageOutput *_pictureOutput;
+    
+    AVCaptureDevice *_captureVideoDevice;
+    AVCaptureDeviceInput *_captureVideoInput;
+    AVCaptureDevice *_audioCaptureDevice;
+    AVCaptureDeviceInput *_audioCaptureInput;
     
     VideoEncoder* _encoder;
     BOOL _isCapturing;
     BOOL _isPaused;
     BOOL _discont;
-    int _currentFile;
+    BOOL _hasFinished;
     CMTime _timeOffset;
     CMTime _lastVideo;
     CMTime _lastAudio;
@@ -56,42 +65,59 @@ static CameraEngine* theEngine;
     return theEngine;
 }
 
-- (void) startup
+- (void) startup:(NSString*)filePath
 {
     if (_session == nil)
     {
         NSLog(@"Starting up server");
+        
+        if (filePath) {
+            _filePath = filePath;
+        }
+        
+        // Configure Mic to built in mic
+        AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+        [audioSession setCategory:AVAudioSessionCategoryPlayAndRecord error:nil];
+        [audioSession setActive:YES error:nil];
+        
+        NSArray *inputs = audioSession.availableInputs;
+        AVAudioSessionPortDescription *mic = nil;
+        for (AVAudioSessionPortDescription *port in inputs) {
+            if (port.portType == AVAudioSessionPortBuiltInMic) {
+                mic = port;
+                break;
+            }
+        }
+        if (mic) {
+            NSArray *sources = mic.dataSources;
+            for (AVAudioSessionDataSourceDescription *source in sources) {
+                if (source.orientation == AVAudioSessionOrientationFront) {
+                    [mic setPreferredDataSource:source error:nil];
+                    [audioSession setPreferredInput:mic error:nil];
+                    break;
+                }
+            }
+        }
 
+        self.hasFinished = NO;
         self.isCapturing = NO;
         self.isPaused = NO;
-        _currentFile = 0;
         _discont = NO;
+        _encoder = nil;
         
         // create capture device with video input
         _session = [[AVCaptureSession alloc] init];
-        AVCaptureDevice* backCamera = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
-        AVCaptureDeviceInput* input = [AVCaptureDeviceInput deviceInputWithDevice:backCamera error:nil];
-        [_session addInput:input];
+        _captureVideoDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+        _captureVideoInput = [AVCaptureDeviceInput deviceInputWithDevice:_captureVideoDevice error:nil];
+        [_session addInput:_captureVideoInput];
         
         // audio input from default mic
-        AVCaptureDevice* mic = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
-        AVCaptureDeviceInput* micinput = [AVCaptureDeviceInput deviceInputWithDevice:mic error:nil];
-        [_session addInput:micinput];
+        _audioCaptureDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+        _audioCaptureInput = [AVCaptureDeviceInput deviceInputWithDevice:_audioCaptureDevice error:nil];
+        [_session addInput:_audioCaptureInput];
         
         // create an output for YUV output with self as delegate
         _captureQueue = dispatch_queue_create("uk.co.gdcl.cameraengine.capture", DISPATCH_QUEUE_SERIAL);
-        AVCaptureVideoDataOutput* videoout = [[AVCaptureVideoDataOutput alloc] init];
-        [videoout setSampleBufferDelegate:self queue:_captureQueue];
-        NSDictionary* setcapSettings = [NSDictionary dictionaryWithObjectsAndKeys:
-                                        [NSNumber numberWithInt:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange], kCVPixelBufferPixelFormatTypeKey,
-                                        nil];
-        videoout.videoSettings = setcapSettings;
-        [_session addOutput:videoout];
-        _videoConnection = [videoout connectionWithMediaType:AVMediaTypeVideo];
-        // find the actual dimensions used so we can set up the encoder to the same.
-        NSDictionary* actual = videoout.videoSettings;
-        _cy = [[actual objectForKey:@"Height"] longValue];
-        _cx = [[actual objectForKey:@"Width"] longValue];
         
         AVCaptureAudioDataOutput* audioout = [[AVCaptureAudioDataOutput alloc] init];
         [audioout setSampleBufferDelegate:self queue:_captureQueue];
@@ -108,13 +134,30 @@ static CameraEngine* theEngine;
     }
 }
 
-- (void) startCapture
+- (void) startCapture:(AVCaptureVideoOrientation)orientation
 {
     @synchronized(self)
     {
         if (!self.isCapturing)
         {
             NSLog(@"starting capture");
+            
+            _videoout = [[AVCaptureVideoDataOutput alloc] init];
+            [_videoout setSampleBufferDelegate:self queue:_captureQueue];
+            NSDictionary* setcapSettings = [NSDictionary dictionaryWithObjectsAndKeys:
+                                            [NSNumber numberWithInt:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange], kCVPixelBufferPixelFormatTypeKey,
+                                            nil];
+            _videoout.videoSettings = setcapSettings;
+            [_session addOutput:_videoout];
+            _videoConnection = [_videoout connectionWithMediaType:AVMediaTypeVideo];
+            
+            // Set the orientation before we configure the output dimensions
+            _videoConnection.videoOrientation = orientation;
+            
+            // find the actual dimensions used so we can set up the encoder to the same.
+            NSDictionary* actual = _videoout.videoSettings;
+            _cy = [[actual objectForKey:@"Height"] longValue];
+            _cx = [[actual objectForKey:@"Width"] longValue];
             
             // create the encoder once we have the audio params
             _encoder = nil;
@@ -126,29 +169,29 @@ static CameraEngine* theEngine;
     }
 }
 
-- (void) stopCapture
+- (void) stopCapture:(void (^)(void))handler
 {
     @synchronized(self)
     {
         if (self.isCapturing)
         {
-            NSString* filename = [NSString stringWithFormat:@"capture%d.mp4", _currentFile];
-            NSString* path = [NSTemporaryDirectory() stringByAppendingPathComponent:filename];
-            NSURL* url = [NSURL fileURLWithPath:path];
-            _currentFile++;
+            NSURL *url = [NSURL fileURLWithPath:_filePath];
             
             // serialize with audio and video capture
             
             self.isCapturing = NO;
+            
+            if (self.hasFinished) {
+                return;
+            }
+            self.hasFinished = YES;
             dispatch_async(_captureQueue, ^{
                 [_encoder finishWithCompletionHandler:^{
                     self.isCapturing = NO;
                     _encoder = nil;
-                    ALAssetsLibrary *library = [[ALAssetsLibrary alloc] init];
-                    [library writeVideoAtPathToSavedPhotosAlbum:url completionBlock:^(NSURL *assetURL, NSError *error){
-                        NSLog(@"save completed");
-                        [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-                    }];
+                    if (handler) {
+                        handler();
+                    }
                 }];
             });
         }
@@ -180,6 +223,99 @@ static CameraEngine* theEngine;
     }
 }
 
+- (void) switchCamera {
+    AVCaptureDevicePosition newPosition = (_captureVideoDevice.position == AVCaptureDevicePositionFront ? AVCaptureDevicePositionBack : AVCaptureDevicePositionFront);
+    
+    AVCaptureDevice *newDevice = [self videoDeviceForPosition:newPosition];
+    if (newDevice) {
+        NSError *error = nil;
+        AVCaptureDeviceInput *deviceInput = [AVCaptureDeviceInput deviceInputWithDevice:newDevice error:&error];
+        if (deviceInput && error == nil) {
+            [_session beginConfiguration];
+            [_session removeInput:_captureVideoInput];
+            
+            if ([_session canAddInput:deviceInput]) {
+                if (_captureVideoInput != nil) {
+                    [_session removeInput:_captureVideoInput];
+                }
+                _session.sessionPreset = AVCaptureSessionPresetHigh;
+                [_session addInput:deviceInput];
+                _captureVideoDevice = newDevice;
+                _captureVideoInput = deviceInput;
+            } else {
+                [_session addInput:_captureVideoInput];
+            }
+            
+            [_session commitConfiguration];
+        } else {
+            NSLog(@"Failed to switch camera: %@", error);
+        }
+    }
+}
+
+- (AVCaptureDevice *)videoDeviceForPosition:(AVCaptureDevicePosition)position {
+    NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+    for (AVCaptureDevice *device in devices) {
+        if (device.position == position) {
+            return device;
+        }
+    }
+    
+    return nil;
+}
+
+- (BOOL) cameraHasFlash {
+    return [_captureVideoDevice hasFlash];
+}
+
+- (BOOL) isFlashModeSupported:(AVCaptureFlashMode)flashMode {
+    return [_captureVideoDevice isFlashModeSupported:flashMode];
+}
+
+- (BOOL) isTorchModeSupported:(AVCaptureTorchMode)torchMode {
+    return [_captureVideoDevice isTorchModeSupported:torchMode];
+}
+
+- (void) selectFlash:(AVCaptureFlashMode)flashMode torch:(AVCaptureTorchMode)torchMode {
+    NSError *error = nil;
+    BOOL *locked = [_captureVideoDevice lockForConfiguration:&error];
+    if (locked && error == nil) {
+        _captureVideoDevice.flashMode = flashMode;
+        _captureVideoDevice.torchMode = torchMode;
+        [_captureVideoDevice unlockForConfiguration];
+    } else {
+        NSLog(@"Error changing camera flash: %@", error);
+    }
+}
+
+- (void) takePicture:(void (^)(CMSampleBufferRef imageDataSampleBuffer, NSError *error))handler {
+    [self preparePhotoOutput];
+    
+    AVCaptureConnection *videoConnection = [_pictureOutput connectionWithMediaType:AVMediaTypeVideo];
+    if (!videoConnection) {
+        return;
+    }
+    videoConnection.videoOrientation = _videoConnection.videoOrientation;
+    
+    [_pictureOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler:handler];
+}
+
+- (void) preparePhotoOutput {
+    [_session beginConfiguration];
+    if (_pictureOutput) {
+        [_session removeOutput:_pictureOutput];
+    }
+    
+    _pictureOutput = [[AVCaptureStillImageOutput alloc] init];
+    NSDictionary *outputSettings = [[NSDictionary alloc] initWithObjectsAndKeys: AVVideoCodecJPEG, AVVideoCodecKey, nil];
+    [_pictureOutput setOutputSettings:outputSettings];
+    
+    if ([_session canAddOutput:_pictureOutput]) {
+        [_session addOutput:_pictureOutput];
+    }
+    [_session commitConfiguration];
+}
+
 - (CMSampleBufferRef) adjustTime:(CMSampleBufferRef) sample by:(CMTime) offset
 {
     CMItemCount count;
@@ -197,12 +333,17 @@ static CameraEngine* theEngine;
     return sout;
 }
 
-- (void) setAudioFormat:(CMFormatDescriptionRef) fmt
+- (BOOL) setAudioFormat:(CMFormatDescriptionRef) fmt
 {
     const AudioStreamBasicDescription *asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fmt);
+    if (!asbd) {
+        // Protect from null pointer dereference
+        return NO;
+    }
+    
     _samplerate = asbd->mSampleRate;
     _channels = asbd->mChannelsPerFrame;
-    
+    return YES;
 }
 
 - (void) captureOutput:(AVCaptureOutput *)captureOutput didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection
@@ -215,17 +356,18 @@ static CameraEngine* theEngine;
         {
             return;
         }
-        if (connection != _videoConnection)
+        if (connection == _audioConnection)
         {
             bVideo = NO;
         }
         if ((_encoder == nil) && !bVideo)
         {
             CMFormatDescriptionRef fmt = CMSampleBufferGetFormatDescription(sampleBuffer);
-            [self setAudioFormat:fmt];
-            NSString* filename = [NSString stringWithFormat:@"capture%d.mp4", _currentFile];
-            NSString* path = [NSTemporaryDirectory() stringByAppendingPathComponent:filename];
-            _encoder = [VideoEncoder encoderForPath:path Height:(int)_cy width:(int)_cx channels:_channels samples:_samplerate];
+            if ([self setAudioFormat:fmt] == NO) {
+                return;
+            }
+            
+            _encoder = [VideoEncoder encoderForPath:_filePath Height:(int)_cy width:(int)_cx channels:_channels samples:_samplerate];
         }
         if (_discont)
         {
@@ -298,13 +440,42 @@ static CameraEngine* theEngine;
     if (_session)
     {
         [_session stopRunning];
+        
+        if (_pictureOutput) {
+            [_session removeOutput:_pictureOutput];
+            _pictureOutput = nil;
+        }
+        if (_videoout) {
+            [_session removeOutput:_videoout];
+            _videoout = nil;
+        }
+        if (_captureVideoInput) {
+            [_session removeInput:_captureVideoInput];
+            _captureVideoInput = nil;
+        }
+        if (_audioCaptureInput) {
+            [_session removeInput:_audioCaptureInput];
+            _audioCaptureInput = nil;
+        }
+        
         _session = nil;
+        _captureVideoDevice = nil;
+        _audioCaptureDevice = nil;
     }
-    [_encoder finishWithCompletionHandler:^{
-        NSLog(@"Capture completed");
-    }];
+    
+    if (self.hasFinished) {
+        return;
+    }
+    self.hasFinished = YES;
+    
+    // Must call in the same dispatch queue as encoding to ensure
+    // that all writing has completed prior to calling finish.
+    dispatch_async(_captureQueue, ^{
+        [_encoder finishWithCompletionHandler:^{
+            NSLog(@"Capture completed");
+        }];
+    });
 }
-
 
 - (AVCaptureVideoPreviewLayer*) getPreviewLayer
 {

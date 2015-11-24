@@ -66,7 +66,7 @@
 
 - (IBAction)startRecording:(id)sender
 {
-    [[CameraEngine engine] startCapture];
+    [[CameraEngine engine] startCapture:AVCaptureVideoOrientationPortrait];
 }
 
 - (IBAction)pauseRecording:(id)sender
@@ -76,7 +76,7 @@
 
 - (IBAction)stopRecording:(id)sender
 {
-    [[CameraEngine engine] stopCapture];
+    [[CameraEngine engine] stopCapture:nil];
 }
 - (IBAction)resumeRecording:(id)sender
 {
