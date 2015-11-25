@@ -109,12 +109,17 @@ static CameraEngine* theEngine;
         _session = [[AVCaptureSession alloc] init];
         _captureVideoDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         _captureVideoInput = [AVCaptureDeviceInput deviceInputWithDevice:_captureVideoDevice error:nil];
-        [_session addInput:_captureVideoInput];
+        if (_captureVideoInput) {
+            [_session addInput:_captureVideoInput];
+        }
         
         // audio input from default mic
         _audioCaptureDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
         _audioCaptureInput = [AVCaptureDeviceInput deviceInputWithDevice:_audioCaptureDevice error:nil];
-        [_session addInput:_audioCaptureInput];
+        
+        if (_audioCaptureInput) {
+            [_session addInput:_audioCaptureInput];
+        }
         
         // create an output for YUV output with self as delegate
         _captureQueue = dispatch_queue_create("uk.co.gdcl.cameraengine.capture", DISPATCH_QUEUE_SERIAL);
