@@ -70,6 +70,11 @@
     {
         if (_writer.status == AVAssetWriterStatusUnknown)
         {
+            // make sure we don't start the session if the first frame isn't video
+            if (!bVideo) {
+                return NO;
+            }
+            
             CMTime startTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
             [_writer startWriting];
             [_writer startSessionAtSourceTime:startTime];

@@ -22,6 +22,7 @@ static CameraEngine* theEngine;
     AVCaptureConnection* _videoConnection;
     NSString *_filePath;
     AVCaptureVideoDataOutput *_videoout;
+    AVCaptureAudioDataOutput* _audioout;
     AVCaptureStillImageOutput *_pictureOutput;
     
     AVCaptureDevice *_captureVideoDevice;
@@ -34,6 +35,7 @@ static CameraEngine* theEngine;
     BOOL _isPaused;
     BOOL _discont;
     BOOL _hasFinished;
+    BOOL _hasSeenVideo;
     CMTime _timeOffset;
     CMTime _lastVideo;
     CMTime _lastAudio;
@@ -124,12 +126,19 @@ static CameraEngine* theEngine;
         // create an output for YUV output with self as delegate
         _captureQueue = dispatch_queue_create("uk.co.gdcl.cameraengine.capture", DISPATCH_QUEUE_SERIAL);
         
-        AVCaptureAudioDataOutput* audioout = [[AVCaptureAudioDataOutput alloc] init];
-        [audioout setSampleBufferDelegate:self queue:_captureQueue];
-        [_session addOutput:audioout];
-        _audioConnection = [audioout connectionWithMediaType:AVMediaTypeAudio];
         // for audio, we want the channels and sample rate, but we can't get those from audioout.audiosettings on ios, so
         // we need to wait for the first sample
+        _videoout = [[AVCaptureVideoDataOutput alloc] init];
+        NSDictionary* setcapSettings = [NSDictionary dictionaryWithObjectsAndKeys:
+                                        [NSNumber numberWithInt:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange], kCVPixelBufferPixelFormatTypeKey,
+                                        nil];
+        _videoout.videoSettings = setcapSettings;
+        [_session addOutput:_videoout];
+        _videoConnection = [_videoout connectionWithMediaType:AVMediaTypeVideo];
+        
+        _audioout = [[AVCaptureAudioDataOutput alloc] init];
+        [_session addOutput:_audioout];
+        _audioConnection = [_audioout connectionWithMediaType:AVMediaTypeAudio];
         
         // start capture and a preview layer
         [_session startRunning];
@@ -147,15 +156,6 @@ static CameraEngine* theEngine;
         {
             NSLog(@"starting capture");
             
-            _videoout = [[AVCaptureVideoDataOutput alloc] init];
-            [_videoout setSampleBufferDelegate:self queue:_captureQueue];
-            NSDictionary* setcapSettings = [NSDictionary dictionaryWithObjectsAndKeys:
-                                            [NSNumber numberWithInt:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange], kCVPixelBufferPixelFormatTypeKey,
-                                            nil];
-            _videoout.videoSettings = setcapSettings;
-            [_session addOutput:_videoout];
-            _videoConnection = [_videoout connectionWithMediaType:AVMediaTypeVideo];
-            
             // Set the orientation before we configure the output dimensions
             _videoConnection.videoOrientation = orientation;
             
@@ -163,6 +163,9 @@ static CameraEngine* theEngine;
             NSDictionary* actual = _videoout.videoSettings;
             _cy = [[actual objectForKey:@"Height"] longValue];
             _cx = [[actual objectForKey:@"Width"] longValue];
+            
+            [_videoout setSampleBufferDelegate:self queue:_captureQueue];
+            [_audioout setSampleBufferDelegate:self queue:_captureQueue];
             
             // create the encoder once we have the audio params
             _encoder = nil;
@@ -365,6 +368,10 @@ static CameraEngine* theEngine;
         {
             bVideo = NO;
         }
+        if (!bVideo && !_hasSeenVideo)
+        {
+            return;
+        }
         if ((_encoder == nil) && !bVideo)
         {
             CMFormatDescriptionRef fmt = CMSampleBufferGetFormatDescription(sampleBuffer);
@@ -407,6 +414,7 @@ static CameraEngine* theEngine;
             _lastVideo.flags = 0;
             _lastAudio.flags = 0;
         }
+        _hasSeenVideo = YES;
         
         // retain so that we can release either this or modified one
         CFRetain(sampleBuffer);
