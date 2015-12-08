@@ -25,7 +25,7 @@
 - (void) pauseCapture;
 - (void) stopCapture:(void (^)(void))handler;
 - (void) resumeCapture;
-- (void) switchCamera;
+- (void) switchCamera:(AVCaptureVideoOrientation)orientation;
 - (BOOL) cameraHasFlash;
 - (void) takePicture:(void (^)(CMSampleBufferRef imageDataSampleBuffer, NSError *error))handler;
 - (void) selectFlash:(AVCaptureFlashMode)flashMode torch:(AVCaptureTorchMode)torchMode;

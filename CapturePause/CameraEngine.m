@@ -39,6 +39,7 @@ static CameraEngine* theEngine;
     CMTime _timeOffset;
     CMTime _lastVideo;
     CMTime _lastAudio;
+    AVCaptureVideoOrientation _currentOrientation;
     
     long _cx;
     long _cy;
@@ -155,7 +156,9 @@ static CameraEngine* theEngine;
         if (!self.isCapturing)
         {
             NSLog(@"starting capture");
-            
+          
+            _currentOrientation = orientation;
+          
             // Set the orientation before we configure the output dimensions
             _videoConnection.videoOrientation = orientation;
             
@@ -231,13 +234,14 @@ static CameraEngine* theEngine;
     }
 }
 
-- (void) switchCamera {
+- (void) switchCamera:(AVCaptureVideoOrientation)orientation {
     AVCaptureDevicePosition newPosition = (_captureVideoDevice.position == AVCaptureDevicePositionFront ? AVCaptureDevicePositionBack : AVCaptureDevicePositionFront);
     
     AVCaptureDevice *newDevice = [self videoDeviceForPosition:newPosition];
     if (newDevice) {
         NSError *error = nil;
         AVCaptureDeviceInput *deviceInput = [AVCaptureDeviceInput deviceInputWithDevice:newDevice error:&error];
+      
         if (deviceInput && error == nil) {
             [_session beginConfiguration];
             [_session removeInput:_captureVideoInput];
@@ -253,8 +257,11 @@ static CameraEngine* theEngine;
             } else {
                 [_session addInput:_captureVideoInput];
             }
-            
             [_session commitConfiguration];
+          
+            _currentOrientation = orientation;
+            _videoConnection = [_videoout connectionWithMediaType:AVMediaTypeVideo];
+            _videoConnection.videoOrientation = _currentOrientation;
         } else {
             NSLog(@"Failed to switch camera: %@", error);
         }
@@ -480,7 +487,11 @@ static CameraEngine* theEngine;
         return;
     }
     self.hasFinished = YES;
-    
+  
+    if (_captureQueue == nil) {
+        return;
+    }
+  
     // Must call in the same dispatch queue as encoding to ensure
     // that all writing has completed prior to calling finish.
     dispatch_async(_captureQueue, ^{
