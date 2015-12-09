@@ -295,8 +295,12 @@ static CameraEngine* theEngine;
     NSError *error = nil;
     BOOL *locked = [_captureVideoDevice lockForConfiguration:&error];
     if (locked && error == nil) {
-        _captureVideoDevice.flashMode = flashMode;
-        _captureVideoDevice.torchMode = torchMode;
+        if ([self isFlashModeSupported:flashMode]) {
+            _captureVideoDevice.flashMode = flashMode;
+        }
+        if ([self isTorchModeSupported:torchMode]) {
+            _captureVideoDevice.torchMode = torchMode;
+        }
         [_captureVideoDevice unlockForConfiguration];
     } else {
         NSLog(@"Error changing camera flash: %@", error);
