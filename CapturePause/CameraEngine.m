@@ -140,7 +140,9 @@ static CameraEngine* theEngine;
         _audioout = [[AVCaptureAudioDataOutput alloc] init];
         [_session addOutput:_audioout];
         _audioConnection = [_audioout connectionWithMediaType:AVMediaTypeAudio];
-        
+      
+        [self preparePhotoOutput];
+      
         // start capture and a preview layer
         [_session startRunning];
 
@@ -308,8 +310,6 @@ static CameraEngine* theEngine;
 }
 
 - (void) takePicture:(void (^)(CMSampleBufferRef imageDataSampleBuffer, NSError *error))handler {
-    [self preparePhotoOutput];
-    
     AVCaptureConnection *videoConnection = [_pictureOutput connectionWithMediaType:AVMediaTypeVideo];
     if (!videoConnection) {
         return;
