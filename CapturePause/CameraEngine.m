@@ -73,7 +73,7 @@ static CameraEngine* theEngine;
     if (_session == nil)
     {
         NSLog(@"Starting up server");
-        
+      
         if (filePath) {
             _filePath = filePath;
         }
@@ -315,8 +315,12 @@ static CameraEngine* theEngine;
         return;
     }
     videoConnection.videoOrientation = _videoConnection.videoOrientation;
-    
-    [_pictureOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler:handler];
+  
+    dispatch_after(0.5, dispatch_get_main_queue(), ^{
+      [_pictureOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler:^(CMSampleBufferRef imageDataSampleBuffer, NSError *error) {
+        [_pictureOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler:handler];
+      }];
+    });
 }
 
 - (void) preparePhotoOutput {
